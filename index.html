@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Smart Parking</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="top-header">
+        <h1>Smart Parking</h1>
+        <p id="header-subtitle">Find nearby parking in seconds</p>
+      </header>
+
+      <main id="app-main">
+        <section id="home" class="screen active">
+          <div class="search-row">
+            <input
+              id="searchInput"
+              type="text"
+              placeholder="Search location / area"
+              aria-label="Search location"
+            />
+            <button class="btn btn-secondary" id="filterBtn">Filter</button>
+          </div>
+
+          <div class="map-card">
+            <div class="mock-map">
+              <div id="map"></div>
+              <div class="legend">
+                <span><i class="dot free"></i>Free</span>
+                <span><i class="dot occupied"></i>Occupied</span>
+                <span><i class="dot paid"></i>Paid</span>
+              </div>
+            </div>
+
+            <div id="spotList" class="spot-list hidden"></div>
+          </div>
+
+          <div class="actions-grid">
+            <button class="btn" id="myParkingQuickBtn">My Parking</button>
+            <button class="btn btn-secondary" id="locateBtn">Locate Me</button>
+            <button class="btn btn-secondary" id="toggleViewBtn">View List</button>
+          </div>
+        </section>
+
+        <section id="details" class="screen">
+          <h2>Parking Spot Details</h2>
+          <article class="card">
+            <p><strong>Spot:</strong> <span id="detailSpotId">-</span></p>
+            <p><strong>Status:</strong> <span id="detailStatus">-</span></p>
+            <p><strong>Price/hr:</strong> <span id="detailPrice">-</span></p>
+            <p><strong>Distance:</strong> <span id="detailDistance">-</span></p>
+            <p><strong>Sensor:</strong> <span id="detailSensor">-</span></p>
+          </article>
+          <div class="actions-grid">
+            <button class="btn" id="navigateBtn">Navigate</button>
+            <button class="btn btn-secondary" id="reserveBtn">Reserve</button>
+            <button class="btn btn-secondary" id="saveSpotBtn">Save Spot</button>
+          </div>
+        </section>
+
+        <section id="navigation" class="screen">
+          <h2>Navigation</h2>
+          <article class="card">
+            <p><strong>Route:</strong> Current location to <span id="navSpotId">-</span></p>
+            <p><strong>ETA:</strong> <span id="navEta">-</span></p>
+            <p><strong>Live Status:</strong> <span id="navStatus">-</span></p>
+          </article>
+          <div class="mock-route">Route preview map</div>
+          <div class="actions-grid">
+            <button class="btn" id="startNavBtn">Start Navigation</button>
+            <button class="btn btn-secondary" id="cancelNavBtn">Cancel</button>
+          </div>
+        </section>
+
+        <section id="active-parking" class="screen">
+          <h2>Active Parking</h2>
+          <article class="card">
+            <p><strong>Spot:</strong> <span id="activeSpot">-</span></p>
+            <p><strong>Started:</strong> <span id="activeStartTime">-</span></p>
+            <p><strong>Elapsed:</strong> <span id="activeElapsed">00:00:00</span></p>
+            <p><strong>Running Cost:</strong> <span id="activeCost">₹0.00</span></p>
+          </article>
+          <div class="actions-grid">
+            <button class="btn btn-danger" id="endParkingBtn">End Parking</button>
+            <button class="btn btn-secondary" id="extendTimeBtn">Extend Time</button>
+          </div>
+        </section>
+
+        <section id="payment" class="screen">
+          <h2>Payment</h2>
+          <article class="card">
+            <p><strong>Total time:</strong> <span id="payTime">-</span></p>
+            <p><strong>Base cost:</strong> <span id="payBase">-</span></p>
+            <p><strong>Taxes/fees:</strong> <span id="payFees">-</span></p>
+            <p><strong>Total:</strong> <span id="payTotal">-</span></p>
+          </article>
+
+          <div class="payment-methods">
+            <label><input type="radio" name="payMethod" value="UPI" checked /> UPI</label>
+            <label><input type="radio" name="payMethod" value="Card" /> Card</label>
+            <label><input type="radio" name="payMethod" value="Wallet" /> Wallet</label>
+          </div>
+
+          <div class="actions-grid">
+            <button class="btn" id="payNowBtn">Pay Now</button>
+            <button class="btn btn-secondary" id="downloadReceiptBtn">Download Receipt</button>
+          </div>
+        </section>
+
+        <section id="history" class="screen">
+          <h2>History</h2>
+          <div id="historyList" class="list-stack"></div>
+        </section>
+
+        <section id="notifications" class="screen">
+          <h2>Notifications</h2>
+          <div id="notificationList" class="list-stack"></div>
+        </section>
+
+        <section id="profile" class="screen">
+          <h2>Profile</h2>
+          <article class="card">
+            <p><strong>Name:</strong> Alex Driver</p>
+            <p><strong>Vehicle:</strong> MH12AB1234</p>
+            <p><strong>Payment methods:</strong> UPI, Visa •••• 2121</p>
+          </article>
+          <div class="actions-grid">
+            <button class="btn btn-secondary">Add vehicle</button>
+            <button class="btn btn-secondary">Add payment method</button>
+            <button class="btn btn-danger">Logout</button>
+          </div>
+        </section>
+      </main>
+
+      <nav class="bottom-nav">
+        <button data-target="home" class="nav-link active">Home</button>
+        <button data-target="history" class="nav-link">History</button>
+        <button data-target="notifications" class="nav-link">Notifications</button>
+        <button data-target="profile" class="nav-link">Profile</button>
+      </nav>
+    </div>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
