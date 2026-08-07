@@ -10,6 +10,7 @@
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
       crossorigin=""
     />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -32,12 +33,14 @@
           </div>
 
           <div class="map-card">
-            <div class="mock-map">
-              <div id="map"></div>
-              <div class="legend">
-                <span><i class="dot free"></i>Free</span>
-                <span><i class="dot occupied"></i>Occupied</span>
-                <span><i class="dot paid"></i>Paid</span>
+            <div id="mapHomeSlot">
+              <div class="mock-map">
+                <div id="map"></div>
+                <div class="legend">
+                  <span><i class="dot free"></i>Free</span>
+                  <span><i class="dot occupied"></i>Occupied</span>
+                  <span><i class="dot paid"></i>Paid</span>
+                </div>
               </div>
             </div>
 
@@ -67,14 +70,29 @@
           </div>
         </section>
 
-        <section id="navigation" class="screen">
-          <h2>Navigation</h2>
+        <section id="navigation" class="screen navigation-screen">
+          <h2>Navigation to Parking</h2>
           <article class="card">
-            <p><strong>Route:</strong> Current location to <span id="navSpotId">-</span></p>
-            <p><strong>ETA:</strong> <span id="navEta">-</span></p>
-            <p><strong>Live Status:</strong> <span id="navStatus">-</span></p>
+            <p><strong>Destination:</strong> <span id="navSpotId">-</span></p>
+            <div class="eta-large" id="navEta">-</div>
+            <p class="eta-label">Estimated time to arrive</p>
+            <p><strong>Spot Status:</strong> <span id="navStatus">-</span></p>
           </article>
-          <div class="mock-route">Route preview map</div>
+          <div id="navigationMap" class="navigation-map"></div>
+          <div class="route-info">
+            <div>
+              <strong>Distance</strong>
+              <span id="navDistance">-</span>
+            </div>
+            <div>
+              <strong>Speed</strong>
+              <span>20-40 km/h</span>
+            </div>
+            <div>
+              <strong>Route</strong>
+              <span>Optimal</span>
+            </div>
+          </div>
           <div class="actions-grid">
             <button class="btn" id="startNavBtn">Start Navigation</button>
             <button class="btn btn-secondary" id="cancelNavBtn">Cancel</button>
@@ -154,6 +172,7 @@
       integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
       crossorigin=""
     ></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

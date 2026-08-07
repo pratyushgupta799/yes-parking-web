@@ -10,6 +10,7 @@
   --free: #16a34a;
   --occupied: #ef4444;
   --paid: #2563eb;
+  --success: #10b981;
 }
 
 * {
@@ -112,6 +113,10 @@ input[type="text"] {
   font-weight: 600;
 }
 
+.navigation-map .mock-map {
+  margin-top: 12px;
+}
+
 .legend {
   position: absolute;
   bottom: 10px;
@@ -123,6 +128,7 @@ input[type="text"] {
   border-radius: 8px;
   padding: 6px 8px;
   font-size: 0.8rem;
+  z-index: 1;
 }
 
 .dot {
@@ -145,6 +151,17 @@ input[type="text"] {
   color: #fff;
   font-weight: 600;
   cursor: pointer;
+  font-size: 0.95rem;
+  transition: all 0.2s ease;
+}
+
+.btn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.btn:active {
+  transform: translateY(0);
 }
 
 .btn-secondary {
@@ -182,11 +199,19 @@ input[type="text"] {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 10px;
+  text-align: left;
+}
+
+.list-item button {
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
 }
 
 .list-item p {
   margin: 4px 0;
   color: var(--muted);
+  font-size: 0.9rem;
 }
 
 .payment-methods {
@@ -197,6 +222,17 @@ input[type="text"] {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 12px;
+}
+
+.payment-methods label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.payment-methods input[type="radio"] {
+  cursor: pointer;
 }
 
 .bottom-nav {
@@ -221,6 +257,13 @@ input[type="text"] {
   background: transparent;
   color: var(--muted);
   font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.nav-link:hover {
+  background: #f0f4f8;
 }
 
 .nav-link.active {
@@ -228,9 +271,112 @@ input[type="text"] {
   color: #0f3d9e;
 }
 
+/* Navigation-specific styles */
+.nav-status-badge {
+  display: inline-block;
+  padding: 6px 10px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-top: 8px;
+}
+
+.nav-status-badge.active {
+  background: #d1fae5;
+  color: #059669;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.navigation-screen .card {
+  border-left: 4px solid var(--primary);
+}
+
+.route-info {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px;
+  background: #f0f4f8;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.route-info strong {
+  display: block;
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-bottom: 2px;
+}
+
+/* Map popup button styling */
+.nav-popup-btn {
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.85rem;
+  margin-top: 6px;
+  width: 100%;
+}
+
+.nav-popup-btn:hover {
+  opacity: 0.9;
+}
+
+.leaflet-popup-content-wrapper {
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.leaflet-popup-content {
+  margin: 0;
+  padding: 0;
+}
+
+.leaflet-popup-content strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+/* ETA display styling */
+.eta-large {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--primary);
+  margin: 12px 0;
+}
+
+.eta-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 @keyframes fade {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { 
+    opacity: 0; 
+    transform: translateY(4px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translateY(0); 
+  }
 }
 
 @media (min-width: 768px) {
@@ -240,5 +386,9 @@ input[type="text"] {
 
   .actions-grid {
     grid-template-columns: repeat(3, 1fr);
+  }
+
+  .route-info {
+    grid-template-columns: 1fr 1fr 1fr;
   }
 }

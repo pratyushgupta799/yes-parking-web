@@ -1,4 +1,4 @@
-const API_URL = "https://yes-parking.pratyushgupta04.workers.dev/";
+const API_URL = "https://yes-parking.pratyushgupta04.workers.dev";
 const spots = [];
 
 const state = {
@@ -12,6 +12,12 @@ const state = {
   markerLayer: null,
   userLocation: null,
   lastPayment: null,
+  navigationActive: false,
+  navRoute: null,
+  navSimulationTimer: null,
+  routingControl: null,
+  userLocationMarker: null,
+  watchId: null,
 };
 
 const screenIds = [
@@ -70,6 +76,7 @@ function buildSpotFromApi(row) {
 }
 
 function showScreen(id) {
+  moveMapToScreen(id);
   screenIds.forEach((screenId) => {
     document.getElementById(screenId).classList.toggle("active", screenId === id);
   });
@@ -77,6 +84,18 @@ function showScreen(id) {
     btn.classList.toggle("active", btn.dataset.target === id);
   });
   state.currentScreen = id;
+  requestAnimationFrame(() => state.map?.invalidateSize());
+}
+
+function moveMapToScreen(screenId) {
+  const mapWrapper = document.querySelector(".mock-map");
+  const destination = document.getElementById(
+    screenId === "navigation" ? "navigationMap" : "mapHomeSlot"
+  );
+
+  if (mapWrapper && destination && mapWrapper.parentElement !== destination) {
+    destination.appendChild(mapWrapper);
+  }
 }
 
 function getSpotById(id) {
@@ -96,7 +115,7 @@ function renderSpotList(data = spots) {
     row.innerHTML = `<strong>${spot.id}</strong><p>${spot.status} • ${currency(
       spot.pricePerHour
     )}/hr • ${spot.distanceKm} km</p>`;
-    row.addEventListener("click", () => openSpotDetails(spot.id));
+    row.addEventListener("click", () => startDirectNavigation(spot.id));
     container.appendChild(row);
   });
 }
@@ -111,6 +130,125 @@ function openSpotDetails(spotId) {
   document.getElementById("detailDistance").textContent = `${spot.distanceKm} km`;
   document.getElementById("detailSensor").textContent = `${spot.sensor} (occupancy: ${spot.occupancyStatus})`;
   showScreen("details");
+}
+
+function startDirectNavigation(spotId) {
+  const spot = getSpotById(spotId);
+
+  if (!spot) return;
+
+  state.currentSpot = spot;
+  state.navigationActive = true;
+  document.getElementById("navSpotId").textContent = spot.id;
+
+  if (!state.userLocation) {
+    if (!navigator.geolocation) {
+      state.navigationActive = false;
+      addNotification("Location unavailable", "Geolocation is not supported.");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude: lat, longitude: lon } = position.coords;
+        state.userLocation = { lat, lon };
+
+        if (state.userLocationMarker) {
+          state.userLocationMarker.setLatLng([lat, lon]);
+        } else {
+          state.userLocationMarker = L.marker([lat, lon])
+            .addTo(state.map)
+            .bindPopup("You are here");
+        }
+
+        spots.forEach((parkingSpot) => {
+          parkingSpot.distanceKm = Number(
+            calculateDistanceKm(lat, lon, parkingSpot.lat, parkingSpot.lon).toFixed(2)
+          );
+        });
+        renderSpotList();
+        drawNavigationRoute();
+        showScreen("navigation");
+      },
+      () => {
+        state.navigationActive = false;
+        addNotification("Location error", "Unable to get your current location.");
+      },
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
+    );
+    return;
+  }
+
+  drawNavigationRoute();
+  showScreen("navigation");
+}
+
+function drawNavigationRoute() {
+  if (!state.userLocation || !state.currentSpot || !state.map) return;
+
+  // Remove old route
+  if (state.routingControl) {
+    state.map.removeControl(state.routingControl);
+    state.routingControl = null;
+  }
+
+  state.routingControl = L.Routing.control({
+    waypoints: [
+      L.latLng(state.userLocation.lat, state.userLocation.lon),
+      L.latLng(state.currentSpot.lat, state.currentSpot.lon),
+    ],
+    routeWhileDragging: false,
+    addWaypoints: false,
+    draggableWaypoints: false,
+    fitSelectedRoutes: true,
+    show: false,
+    lineOptions: {
+      styles: [{ color: "#2563eb", weight: 5, opacity: 0.8 }],
+    },
+    createMarker: (i, wp) => {
+      if (i === 0) {
+        return L.marker(wp.latLng).bindPopup("Your location");
+      }
+      return L.marker(wp.latLng).bindPopup(state.currentSpot.id);
+    },
+  })
+    .on("routesfound", (e) => {
+      const route = e.routes[0];
+      const distanceKm = (route.summary.totalDistance / 1000).toFixed(1);
+      const etaMin = Math.ceil(route.summary.totalTime / 60);
+
+      document.getElementById("navEta").textContent = `${etaMin} mins`;
+      document.getElementById("navDistance").textContent = `${distanceKm} km`;
+      document.getElementById("navStatus").textContent =
+        `${state.currentSpot.status} • ${distanceKm} km`;
+    })
+    .addTo(state.map);
+}
+
+function startLiveNavigation() {
+  if (!state.currentSpot) return;
+
+  addNotification(
+    "Navigation started",
+    `Following route to ${state.currentSpot.id}`
+  );
+}
+
+function cancelNavigation() {
+  state.navigationActive = false;
+
+  if (state.routingControl) {
+    state.map.removeControl(state.routingControl);
+    state.routingControl = null;
+  }
+
+  addNotification("Navigation cancelled", "Returned to the parking map.");
+  showScreen("home");
+
+  // Center back on user if available
+  if (state.userLocation) {
+    state.map.setView([state.userLocation.lat, state.userLocation.lon], 15);
+  }
 }
 
 function openNavigation() {
@@ -134,12 +272,15 @@ function initializeMap() {
     attribution: "&copy; OpenStreetMap contributors",
   }).addTo(state.map);
   state.markerLayer = L.layerGroup().addTo(state.map);
+
 }
 
 function renderMapMarkers(data = spots) {
   if (!state.map || !state.markerLayer) return;
+
   state.markerLayer.clearLayers();
   const bounds = [];
+
   data.forEach((spot) => {
     const marker = L.circleMarker([spot.lat, spot.lon], {
       radius: 9,
@@ -148,12 +289,12 @@ function renderMapMarkers(data = spots) {
       fillColor: getStatusColor(spot.status),
       fillOpacity: 0.95,
     }).addTo(state.markerLayer);
-    marker.bindPopup(
-      `<strong>${spot.id}</strong><br/>${spot.status}<br/>${currency(spot.pricePerHour)}/hr`
-    );
-    marker.on("click", () => openSpotDetails(spot.id));
+
+    marker.on("click", () => startDirectNavigation(spot.id));
+
     bounds.push([spot.lat, spot.lon]);
   });
+
   if (bounds.length > 0) {
     state.map.fitBounds(bounds, { padding: [24, 24], maxZoom: 14 });
   }
@@ -161,7 +302,7 @@ function renderMapMarkers(data = spots) {
 
 async function fetchSpotsFromCloudflare() {
   try {
-    const response = await fetch(API_URL);
+    const response = await fetch(`${API_URL}/parking`);
     if (!response.ok) throw new Error(`Request failed (${response.status})`);
     const rows = await response.json();
     spots.length = 0;
@@ -182,6 +323,12 @@ async function fetchSpotsFromCloudflare() {
 
 function startParkingSession() {
   if (!state.currentSpot) return;
+
+  if (state.navSimulationTimer) {
+    clearInterval(state.navSimulationTimer);
+    state.navSimulationTimer = null;
+  }
+
   state.parkingStart = new Date();
   document.getElementById("activeSpot").textContent = state.currentSpot.id;
   document.getElementById("activeStartTime").textContent = state.parkingStart.toLocaleTimeString();
@@ -251,9 +398,8 @@ function renderHistory() {
   state.history.forEach((entry) => {
     const item = document.createElement("div");
     item.className = "list-item";
-    item.innerHTML = `<strong>${entry.spotId}</strong><p>${entry.date.toLocaleString()} • ${
-      entry.elapsedMinutes
-    } min • ${currency(entry.total)}</p><div class="actions-grid"><button class="btn btn-secondary">View receipt</button><button class="btn btn-secondary">Rebook same area</button></div>`;
+    item.innerHTML = `<strong>${entry.spotId}</strong><p>${entry.date.toLocaleString()} • ${entry.elapsedMinutes
+      } min • ${currency(entry.total)}</p><div class="actions-grid"><button class="btn btn-secondary">View receipt</button><button class="btn btn-secondary">Rebook same area</button></div>`;
     historyList.appendChild(item);
   });
 }
@@ -273,16 +419,26 @@ function initializeEvents() {
   document.querySelectorAll(".nav-link").forEach((btn) => {
     btn.addEventListener("click", () => showScreen(btn.dataset.target));
   });
-  document.getElementById("navigateBtn").addEventListener("click", openNavigation);
-  document.getElementById("startNavBtn").addEventListener("click", () => {
-    addNotification("Navigation started", `Heading to spot ${state.currentSpot?.id ?? ""}.`);
-    setTimeout(() => startParkingSession(), 1200);
+
+  document.getElementById("navigateBtn").addEventListener("click", () => {
+    if (!state.userLocation) {
+      addNotification("Location needed", "Enable location to navigate.");
+      return;
+    }
+    if (state.currentSpot) {
+      startDirectNavigation(state.currentSpot.id);
+    }
   });
-  document.getElementById("cancelNavBtn").addEventListener("click", () => showScreen("home"));
+
+  document.getElementById("startNavBtn").addEventListener("click", startLiveNavigation);
+
+  document.getElementById("cancelNavBtn").addEventListener("click", cancelNavigation);
+
   document.getElementById("myParkingQuickBtn").addEventListener("click", () => {
     if (state.parkingStart) showScreen("active-parking");
     else showScreen("history");
   });
+
   document.getElementById("endParkingBtn").addEventListener("click", endParkingSession);
   document.getElementById("extendTimeBtn").addEventListener("click", () => {
     addNotification("Time extended", "Parking session extension requested.");
@@ -291,43 +447,85 @@ function initializeEvents() {
   document.getElementById("downloadReceiptBtn").addEventListener("click", () => {
     addNotification("Receipt", "Receipt downloaded successfully.");
   });
-  document.getElementById("locateBtn").addEventListener("click", () => {
+
+  function startLocationTracking() {
     if (!navigator.geolocation) {
       addNotification("Location unavailable", "Geolocation is not supported.");
       return;
     }
-    navigator.geolocation.getCurrentPosition(
+
+    // Prevent multiple watchers
+    if (state.watchId) {
+      navigator.geolocation.clearWatch(state.watchId);
+    }
+
+    state.watchId = navigator.geolocation.watchPosition(
       (position) => {
         const lat = position.coords.latitude;
         const lon = position.coords.longitude;
+
         state.userLocation = { lat, lon };
-        if (state.map) {
-          state.map.setView([lat, lon], 14);
-          L.marker([lat, lon]).addTo(state.map).bindPopup("You are here");
+
+        // Update or create user marker
+        if (state.userLocationMarker) {
+          state.userLocationMarker.setLatLng([lat, lon]);
+        } else {
+          state.userLocationMarker = L.marker([lat, lon])
+            .addTo(state.map)
+            .bindPopup("You are here");
         }
-        if (spots.length > 0) {
-          spots.forEach((spot) => {
-            spot.distanceKm = Number(calculateDistanceKm(lat, lon, spot.lat, spot.lon).toFixed(2));
-          });
-          renderSpotList();
+
+        // Recalculate distance to all parking spots
+        spots.forEach((spot) => {
+          spot.distanceKm = Number(
+            calculateDistanceKm(lat, lon, spot.lat, spot.lon).toFixed(2)
+          );
+        });
+
+        // Update list
+        renderSpotList();
+
+        // Update route if navigation is active
+        if (state.navigationActive && state.currentSpot) {
+          drawNavigationRoute();
         }
-        addNotification("Location updated", "Showing nearest parking around your location.");
+
+        // Keep map centered on user when not navigating
+        if (!state.navigationActive) {
+          state.map.setView([lat, lon], 15);
+        }
       },
-      () => addNotification("Location denied", "Could not access your current location.")
+      (error) => {
+        console.error(error);
+        addNotification(
+          "Location error",
+          "Unable to get your current location."
+        );
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 1000,
+        timeout: 10000,
+      }
     );
-  });
+  }
+
+  document.getElementById("locateBtn").addEventListener("click", startLocationTracking);
+
   document.getElementById("filterBtn").addEventListener("click", () => {
     const availableOnly = spots.filter((spot) => spot.status === "Free");
     renderSpotList(availableOnly);
     renderMapMarkers(availableOnly);
     document.getElementById("spotList").classList.remove("hidden");
   });
+
   document.getElementById("toggleViewBtn").addEventListener("click", (event) => {
     const list = document.getElementById("spotList");
     list.classList.toggle("hidden");
     event.target.textContent = list.classList.contains("hidden") ? "View List" : "View Map";
     if (list.classList.contains("hidden")) renderMapMarkers(spots);
   });
+
   document.getElementById("searchInput").addEventListener("input", (event) => {
     const value = event.target.value.trim().toLowerCase();
     const filtered = spots.filter(
@@ -340,9 +538,11 @@ function initializeEvents() {
     renderMapMarkers(filtered);
     document.getElementById("spotList").classList.remove("hidden");
   });
+
   document.getElementById("reserveBtn").addEventListener("click", () => {
     addNotification("Spot reserved", `Spot ${state.currentSpot?.id ?? ""} reserved successfully.`);
   });
+
   document.getElementById("saveSpotBtn").addEventListener("click", () => {
     addNotification("Saved", `Spot ${state.currentSpot?.id ?? ""} added to favorites.`);
   });
