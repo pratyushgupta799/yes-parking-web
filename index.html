@@ -14,6 +14,21 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
+    <section id="loginView" class="auth-view" aria-labelledby="loginTitle">
+      <div class="auth-card">
+        <img src="logo-removebg-preview.png" alt="Yes Parking" class="auth-logo" />
+        <h1 id="loginTitle">Welcome back</h1>
+        <p>Sign in to see your parking status and nearby spaces.</p>
+        <form id="loginForm">
+          <label for="loginEmail">Email</label>
+          <input id="loginEmail" type="email" autocomplete="email" required placeholder="you@example.com" />
+          <label for="loginPassword">Password</label>
+          <input id="loginPassword" type="password" autocomplete="current-password" required placeholder="Your password" />
+          <p id="loginError" class="form-error" role="alert" aria-live="polite"></p>
+          <button id="loginBtn" class="btn" type="submit">Sign in</button>
+        </form>
+      </div>
+    </section>
     <div class="app-shell">
       <header class="top-header">
         <h1>
@@ -24,6 +39,11 @@
 
       <main id="app-main">
         <section id="home" class="screen active">
+          <article id="sessionSummary" class="session-summary" aria-live="polite">
+            <strong id="sessionSummaryTitle">Checking your parking status…</strong>
+            <span id="sessionSummaryText">Please wait</span>
+            <button id="viewSessionBtn" class="btn btn-secondary hidden" type="button">View active parking</button>
+          </article>
           <div class="search-row">
             <input
               id="searchInput"
@@ -149,14 +169,13 @@
         <section id="profile" class="screen">
           <h2>Profile</h2>
           <article class="card">
-            <p><strong>Name:</strong> Alex Driver</p>
-            <p><strong>Vehicle:</strong> MH12AB1234</p>
-            <p><strong>Payment methods:</strong> UPI, Visa •••• 2121</p>
+            <p><strong>Name:</strong> <span id="profileName">-</span></p>
+            <p><strong>Email:</strong> <span id="profileEmail">-</span></p>
+            <p><strong>RFID:</strong> <span id="profileRfid">-</span></p>
+            <p><strong>Vehicle:</strong> <span id="profileVehicle">Not added</span></p>
           </article>
           <div class="actions-grid">
-            <button class="btn btn-secondary">Add vehicle</button>
-            <button class="btn btn-secondary">Add payment method</button>
-            <button class="btn btn-danger">Logout</button>
+            <button class="btn btn-danger" id="logoutBtn" type="button">Logout</button>
           </div>
         </section>
       </main>

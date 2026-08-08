@@ -2,6 +2,9 @@ const API_URL = "https://yes-parking.pratyushgupta04.workers.dev";
 const spots = [];
 
 const state = {
+  user: null,
+  activeSession: null,
+  eventsInitialized: false,
   currentScreen: "home",
   currentSpot: null,
   parkingStart: null,
@@ -32,6 +35,121 @@ const screenIds = [
 ];
 
 const currency = (value) => `₹${Number(value).toFixed(2)}`;
+
+function setAppAuthenticated(isAuthenticated) {
+  document.getElementById("loginView").classList.toggle("hidden", isAuthenticated);
+  document.querySelector(".app-shell").classList.toggle("hidden", !isAuthenticated);
+}
+
+function renderProfile() {
+  const user = state.user;
+  if (!user) return;
+  document.getElementById("profileName").textContent = user.name || "-";
+  document.getElementById("profileEmail").textContent = user.email || "-";
+  document.getElementById("profileRfid").textContent = user.rfid_id || "-";
+  document.getElementById("profileVehicle").textContent = user.vehicle_number || "Not added";
+  document.getElementById("header-subtitle").textContent = `Welcome, ${user.name}`;
+}
+
+function formatDbDate(value) {
+  if (!value) return "-";
+  const date = new Date(value.replace(" ", "T") + "Z");
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function setSessionSummary(session) {
+  const title = document.getElementById("sessionSummaryTitle");
+  const text = document.getElementById("sessionSummaryText");
+  const button = document.getElementById("viewSessionBtn");
+  button.classList.toggle("hidden", !session);
+  if (!session) {
+    title.textContent = "No active parking session";
+    text.textContent = "Your RFID is not currently checked in.";
+    return;
+  }
+  const spot = getSpotById(`P-${session.parking_space_id}`);
+  title.textContent = "Parking session active";
+  text.textContent = `${spot?.id || `Space ${session.parking_space_id}`} since ${formatDbDate(session.start_time)}`;
+}
+
+async function login(email, password) {
+  const response = await fetch(`${API_URL}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || "Unable to sign in.");
+  localStorage.setItem("yesParkingAuth", JSON.stringify(payload));
+  state.user = payload.user;
+}
+
+async function refreshUserProfile() {
+  if (!state.user?.email) return;
+  const response = await fetch(`${API_URL}/users`);
+  if (!response.ok) throw new Error("Could not refresh your profile.");
+  const users = await response.json();
+  const freshUser = users.find((user) => user.email === state.user.email);
+  if (!freshUser) return;
+  state.user = { ...state.user, ...freshUser };
+  const savedAuth = JSON.parse(localStorage.getItem("yesParkingAuth") || "{}");
+  localStorage.setItem("yesParkingAuth", JSON.stringify({ ...savedAuth, user: state.user }));
+  renderProfile();
+}
+
+function logout() {
+  localStorage.removeItem("yesParkingAuth");
+  state.user = null;
+  state.activeSession = null;
+  setAppAuthenticated(false);
+  document.getElementById("loginForm").reset();
+}
+
+function hydrateActiveParking(session) {
+  const spot = getSpotById(`P-${session.parking_space_id}`);
+  state.currentSpot = spot || { id: `P-${session.parking_space_id}`, rawId: session.parking_space_id, pricePerHour: 0 };
+  state.parkingStart = new Date(session.start_time.replace(" ", "T") + "Z");
+  document.getElementById("activeSpot").textContent = state.currentSpot.id;
+  document.getElementById("activeStartTime").textContent = formatDbDate(session.start_time);
+  if (state.timerId) clearInterval(state.timerId);
+  state.timerId = setInterval(updateParkingStats, 1000);
+  updateParkingStats();
+}
+
+async function loadActiveSession() {
+  if (!state.user?.rfid_id) return;
+  const response = await fetch(`${API_URL}/sessions?active=1&rfid=${encodeURIComponent(state.user.rfid_id)}`);
+  if (!response.ok) throw new Error("Could not check your parking status.");
+  const sessions = await response.json();
+  state.activeSession = sessions.find((session) => session.rfid_id === state.user.rfid_id) || null;
+  setSessionSummary(state.activeSession);
+  if (state.activeSession) hydrateActiveParking(state.activeSession);
+}
+
+async function loadParkingHistory() {
+  if (!state.user?.rfid_id) return;
+  const response = await fetch(`${API_URL}/sessions?rfid=${encodeURIComponent(state.user.rfid_id)}`);
+  if (!response.ok) throw new Error("Could not load your parking history.");
+  const sessions = await response.json();
+  const rfidSessions = sessions.filter((session) => session.rfid_id === state.user.rfid_id);
+
+  state.history = rfidSessions
+    .filter((session) => session.end_time)
+    .map((session) => {
+      const started = new Date(session.start_time.replace(" ", "T") + "Z");
+      const ended = new Date(session.end_time.replace(" ", "T") + "Z");
+      const elapsedMinutes = Math.max(1, Math.round((ended - started) / 60000));
+      const spot = getSpotById(`P-${session.parking_space_id}`);
+      return {
+        spotId: spot?.id || `Space ${session.parking_space_id}`,
+        date: started,
+        elapsedMinutes,
+        total: null,
+        method: "RFID",
+      };
+    });
+  renderHistory();
+}
 
 function getStatusFromOccupancy(occupancyStatus) {
   if (occupancyStatus === 1) return "Occupied";
@@ -315,6 +433,9 @@ async function fetchSpotsFromCloudflare() {
     });
     renderSpotList();
     renderMapMarkers();
+    await refreshUserProfile();
+    await loadActiveSession();
+    await loadParkingHistory();
     addNotification("Live spots loaded", `${spots.length} spots synced from Cloudflare D1.`);
   } catch (error) {
     addNotification("Live data error", "Could not load parking spots from API.");
@@ -398,8 +519,9 @@ function renderHistory() {
   state.history.forEach((entry) => {
     const item = document.createElement("div");
     item.className = "list-item";
+    const paymentText = Number.isFinite(entry.total) ? currency(entry.total) : "Parking completed";
     item.innerHTML = `<strong>${entry.spotId}</strong><p>${entry.date.toLocaleString()} • ${entry.elapsedMinutes
-      } min • ${currency(entry.total)}</p><div class="actions-grid"><button class="btn btn-secondary">View receipt</button><button class="btn btn-secondary">Rebook same area</button></div>`;
+      } min • ${paymentText}</p>`;
     historyList.appendChild(item);
   });
 }
@@ -438,6 +560,11 @@ function initializeEvents() {
     if (state.parkingStart) showScreen("active-parking");
     else showScreen("history");
   });
+
+  document.getElementById("viewSessionBtn").addEventListener("click", () => {
+    if (state.activeSession) showScreen("active-parking");
+  });
+  document.getElementById("logoutBtn").addEventListener("click", logout);
 
   document.getElementById("endParkingBtn").addEventListener("click", endParkingSession);
   document.getElementById("extendTimeBtn").addEventListener("click", () => {
@@ -549,11 +676,49 @@ function initializeEvents() {
 }
 
 async function init() {
+  const savedAuth = localStorage.getItem("yesParkingAuth");
+  if (!savedAuth) {
+    setAppAuthenticated(false);
+    document.getElementById("loginForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const error = document.getElementById("loginError");
+      const button = document.getElementById("loginBtn");
+      error.textContent = "";
+      button.disabled = true;
+      button.textContent = "Signing in…";
+      try {
+        await login(document.getElementById("loginEmail").value.trim(), document.getElementById("loginPassword").value);
+        setAppAuthenticated(true);
+        renderProfile();
+        await startApp();
+      } catch (loginError) {
+        error.textContent = loginError.message;
+      } finally {
+        button.disabled = false;
+        button.textContent = "Sign in";
+      }
+    });
+    return;
+  }
+  try {
+    state.user = JSON.parse(savedAuth).user;
+    setAppAuthenticated(true);
+    renderProfile();
+    await startApp();
+  } catch {
+    logout();
+  }
+}
+
+async function startApp() {
   initializeMap();
   renderSpotList();
   renderHistory();
   renderNotifications();
-  initializeEvents();
+  if (!state.eventsInitialized) {
+    initializeEvents();
+    state.eventsInitialized = true;
+  }
   await fetchSpotsFromCloudflare();
 }
 
