@@ -538,6 +538,8 @@ function openPaymentForSession(session) {
   document.getElementById("payTotal").textContent = currency(payment.total);
   document.getElementById("upiId").textContent = UPI_ID;
   document.getElementById("confirmPaymentBtn").disabled = true;
+  document.getElementById("upiAppSelect").value = "";
+  document.getElementById("payNowBtn").disabled = true;
   state.lastPayment = {
     ...payment,
     paymentReference,
@@ -558,10 +560,19 @@ function getUpiPaymentUrl(payment) {
   return `upi://pay?${params.toString()}`;
 }
 
-function openUpiPayment() {
+function openUpiPayment(appPackage = null) {
   if (!state.lastPayment) return;
   document.getElementById("confirmPaymentBtn").disabled = false;
-  window.location.href = getUpiPaymentUrl(state.lastPayment);
+  const upiUrl = getUpiPaymentUrl(state.lastPayment);
+  const isAndroid = /Android/i.test(navigator.userAgent);
+
+  if (appPackage && isAndroid) {
+    const intentUrl = `intent://pay?${upiUrl.split("?")[1]}#Intent;scheme=upi;package=${appPackage};end`;
+    window.location.href = intentUrl;
+    return;
+  }
+
+  window.location.href = upiUrl;
 }
 
 async function completePayment() {
@@ -662,7 +673,13 @@ function initializeEvents() {
   document.getElementById("extendTimeBtn").addEventListener("click", () => {
     addNotification("Time extended", "Parking session extension requested.");
   });
-  document.getElementById("payNowBtn").addEventListener("click", openUpiPayment);
+  document.getElementById("upiAppSelect").addEventListener("change", (event) => {
+    document.getElementById("payNowBtn").disabled = !event.target.value;
+  });
+  document.getElementById("payNowBtn").addEventListener("click", () => {
+    const selectedApp = document.getElementById("upiAppSelect").value;
+    openUpiPayment(selectedApp === "generic" ? null : selectedApp);
+  });
   document.getElementById("confirmPaymentBtn").addEventListener("click", completePayment);
   document.getElementById("historyList").addEventListener("click", (event) => {
     const button = event.target.closest(".pay-session-btn");

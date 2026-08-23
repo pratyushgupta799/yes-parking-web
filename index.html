@@ -147,12 +147,19 @@
           <div class="payment-methods upi-payment">
             <strong>Pay securely with any UPI app</strong>
             <span>Payment is addressed to <code id="upiId">-</code></span>
-            <p>Tap “Open UPI app”, complete the payment there, then return here to confirm.</p>
+            <label class="upi-app-label" for="upiAppSelect">Choose your payment app</label>
+            <select id="upiAppSelect" class="upi-app-select" aria-label="Choose your UPI app">
+              <option value="" selected disabled>Select an app</option>
+              <option value="net.one97.paytm">Paytm</option>
+              <option value="com.whatsapp">WhatsApp</option>
+              <option value="generic">Another UPI app</option>
+            </select>
+            <p>Choose an app, complete the payment there, then return here to confirm.</p>
             <p class="payment-disclaimer">Payment status is self-confirmed in this version. Add a payment gateway or server-side verification before production use.</p>
           </div>
 
-          <div class="actions-grid">
-            <button class="btn" id="payNowBtn" type="button">Open UPI app</button>
+          <div class="actions-grid payment-actions">
+            <button class="btn" id="payNowBtn" type="button" disabled>Continue to selected app</button>
             <button class="btn btn-secondary" id="confirmPaymentBtn" type="button" disabled>I've paid</button>
           </div>
         </section>

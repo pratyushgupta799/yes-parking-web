@@ -573,6 +573,30 @@ input[type="text"]:hover {
   font-weight: 700;
 }
 
+.upi-app-label {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.upi-app-select {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+}
+
+.upi-app-select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
 .upi-payment .payment-disclaimer {
   margin-top: 4px;
   color: var(--muted);
