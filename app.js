@@ -1,10 +1,14 @@
 const API_URL = "https://yes-parking.pratyushgupta04.workers.dev";
+const UPI_ID = "9693714522@pthdfc";
+const UPI_PAYEE_NAME = "Yes Parking";
 const spots = [];
 
 const state = {
   user: null,
   activeSession: null,
   eventsInitialized: false,
+  pollId: null,
+  refreshInProgress: false,
   currentScreen: "home",
   currentSpot: null,
   parkingStart: null,
@@ -98,11 +102,32 @@ async function refreshUserProfile() {
 }
 
 function logout() {
+  if (state.pollId) clearInterval(state.pollId);
+  state.pollId = null;
   localStorage.removeItem("yesParkingAuth");
   state.user = null;
   state.activeSession = null;
   setAppAuthenticated(false);
   document.getElementById("loginForm").reset();
+}
+
+function getSessionPayment(session) {
+  const started = new Date(session.start_time.replace(" ", "T") + "Z");
+  const ended = new Date(session.end_time.replace(" ", "T") + "Z");
+  const elapsedMinutes = Math.max(1, Math.round((ended - started) / 60000));
+  const spot = getSpotById(`P-${session.parking_space_id}`);
+  const pricePerHour = Number(spot?.pricePerHour ?? 0);
+
+  return {
+    parkingId: session.parking_id,
+    spaceId: session.parking_space_id,
+    spotId: spot?.id || `Space ${session.parking_space_id}`,
+    date: started,
+    elapsedMinutes,
+    total: (elapsedMinutes / 60) * pricePerHour,
+    pricePerHour,
+    paid: Number(session.paid) === 1,
+  };
 }
 
 function hydrateActiveParking(session) {
@@ -135,19 +160,7 @@ async function loadParkingHistory() {
 
   state.history = rfidSessions
     .filter((session) => session.end_time)
-    .map((session) => {
-      const started = new Date(session.start_time.replace(" ", "T") + "Z");
-      const ended = new Date(session.end_time.replace(" ", "T") + "Z");
-      const elapsedMinutes = Math.max(1, Math.round((ended - started) / 60000));
-      const spot = getSpotById(`P-${session.parking_space_id}`);
-      return {
-        spotId: spot?.id || `Space ${session.parking_space_id}`,
-        date: started,
-        elapsedMinutes,
-        total: null,
-        method: "RFID",
-      };
-    });
+    .map((session) => ({ ...session, ...getSessionPayment(session) }));
   renderHistory();
 }
 
@@ -418,7 +431,7 @@ function renderMapMarkers(data = spots) {
   }
 }
 
-async function fetchSpotsFromCloudflare() {
+async function fetchSpotsFromCloudflare(silent = false) {
   try {
     const response = await fetch(`${API_URL}/parking`);
     if (!response.ok) throw new Error(`Request failed (${response.status})`);
@@ -436,10 +449,25 @@ async function fetchSpotsFromCloudflare() {
     await refreshUserProfile();
     await loadActiveSession();
     await loadParkingHistory();
-    addNotification("Live spots loaded", `${spots.length} spots synced from Cloudflare D1.`);
+    if (!silent) addNotification("Live spots loaded", `${spots.length} spots synced from Cloudflare D1.`);
   } catch (error) {
-    addNotification("Live data error", "Could not load parking spots from API.");
+    if (!silent) addNotification("Live data error", "Could not load parking spots from API.");
   }
+}
+
+async function refreshLiveData() {
+  if (!state.user || state.refreshInProgress) return;
+  state.refreshInProgress = true;
+  try {
+    await fetchSpotsFromCloudflare(true);
+  } finally {
+    state.refreshInProgress = false;
+  }
+}
+
+function startLiveUpdates() {
+  if (state.pollId) clearInterval(state.pollId);
+  state.pollId = setInterval(refreshLiveData, 15000);
 }
 
 function startParkingSession() {
@@ -473,40 +501,100 @@ function updateParkingStats() {
   document.getElementById("activeCost").textContent = currency(cost);
 }
 
-function endParkingSession() {
+async function endParkingSession() {
   if (!state.parkingStart || !state.currentSpot) return;
-  if (state.timerId) clearInterval(state.timerId);
-  const elapsedMs = Date.now() - state.parkingStart.getTime();
-  const elapsedMinutes = Math.max(1, Math.round(elapsedMs / 60000));
-  const baseCost = (elapsedMinutes / 60) * state.currentSpot.pricePerHour;
-  const fees = baseCost * 0.05;
-  const total = baseCost + fees;
-  document.getElementById("payTime").textContent = `${elapsedMinutes} min`;
-  document.getElementById("payBase").textContent = currency(baseCost);
-  document.getElementById("payFees").textContent = currency(fees);
-  document.getElementById("payTotal").textContent = currency(total);
-  state.lastPayment = { spotId: state.currentSpot.id, startedAt: state.parkingStart, elapsedMinutes, total };
-  addNotification("Parking ending soon", `Your session at ${state.currentSpot.id} has ended.`);
+  const button = document.getElementById("endParkingBtn");
+  button.disabled = true;
+  button.textContent = "Ending…";
+
+  try {
+    const response = await fetch(`${API_URL}/exit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ space_id: state.currentSpot.rawId, rfid: state.user?.rfid_id }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Could not end the parking session.");
+
+    if (state.timerId) clearInterval(state.timerId);
+    state.timerId = null;
+    state.activeSession = null;
+    setSessionSummary(null);
+    openPaymentForSession(payload.session);
+  } catch (error) {
+    addNotification("Unable to end parking", error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = "End Parking";
+  }
+}
+
+function openPaymentForSession(session) {
+  const payment = getSessionPayment(session);
+  const paymentReference = `YESP${payment.parkingId}${Date.now()}`;
+  document.getElementById("payTime").textContent = `${payment.elapsedMinutes} min`;
+  document.getElementById("payRate").textContent = `${currency(payment.pricePerHour)} / hour`;
+  document.getElementById("payBase").textContent = currency(payment.total);
+  document.getElementById("payTotal").textContent = currency(payment.total);
+  document.getElementById("upiId").textContent = UPI_ID;
+  document.getElementById("confirmPaymentBtn").disabled = true;
+  state.lastPayment = {
+    ...payment,
+    paymentReference,
+  };
+  addNotification("Payment due", `${currency(payment.total)} is due for ${payment.spotId}.`);
   showScreen("payment");
 }
 
-function completePayment() {
+function getUpiPaymentUrl(payment) {
+  const params = new URLSearchParams({
+    pa: UPI_ID,
+    pn: UPI_PAYEE_NAME,
+    am: payment.total.toFixed(2),
+    cu: "INR",
+    tn: `Parking ${payment.spotId}`,
+    tr: payment.paymentReference,
+  });
+  return `upi://pay?${params.toString()}`;
+}
+
+function openUpiPayment() {
   if (!state.lastPayment) return;
-  const method = document.querySelector('input[name="payMethod"]:checked')?.value ?? "UPI";
-  const entry = {
-    spotId: state.lastPayment.spotId,
-    date: new Date(),
-    elapsedMinutes: state.lastPayment.elapsedMinutes,
-    total: state.lastPayment.total,
-    method,
-  };
-  state.history.unshift(entry);
-  renderHistory();
-  addNotification("Payment successful", `Paid ${currency(entry.total)} via ${entry.method} for ${entry.spotId}.`);
-  state.parkingStart = null;
-  state.timerId = null;
-  state.lastPayment = null;
-  showScreen("history");
+  document.getElementById("confirmPaymentBtn").disabled = false;
+  window.location.href = getUpiPaymentUrl(state.lastPayment);
+}
+
+async function completePayment() {
+  if (!state.lastPayment) return;
+  const confirmButton = document.getElementById("confirmPaymentBtn");
+  confirmButton.disabled = true;
+  confirmButton.textContent = "Confirming…";
+
+  try {
+    const response = await fetch(`${API_URL}/payments/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parking_id: state.lastPayment.parkingId, rfid: state.user?.rfid_id }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Could not record the payment.");
+
+    const completedPayment = state.lastPayment;
+    addNotification(
+      "Payment recorded",
+      `UPI payment of ${currency(completedPayment.total)} recorded for ${completedPayment.spotId}.`
+    );
+    state.parkingStart = null;
+    state.timerId = null;
+    state.lastPayment = null;
+    await loadParkingHistory();
+    showScreen("history");
+  } catch (error) {
+    addNotification("Payment not recorded", error.message);
+    confirmButton.disabled = false;
+  } finally {
+    confirmButton.textContent = "I've paid";
+  }
 }
 
 function renderHistory() {
@@ -519,9 +607,13 @@ function renderHistory() {
   state.history.forEach((entry) => {
     const item = document.createElement("div");
     item.className = "list-item";
-    const paymentText = Number.isFinite(entry.total) ? currency(entry.total) : "Parking completed";
-    item.innerHTML = `<strong>${entry.spotId}</strong><p>${entry.date.toLocaleString()} • ${entry.elapsedMinutes
-      } min • ${paymentText}</p>`;
+    const paymentStatus = entry.paid ? "Paid" : "Payment due";
+    item.innerHTML = `
+      <strong>${entry.spotId}</strong>
+      <p>${entry.date.toLocaleString()} • ${entry.elapsedMinutes} min</p>
+      <p>${currency(entry.total)} at ${currency(entry.pricePerHour)}/hr • <span class="payment-status ${entry.paid ? "is-paid" : "is-due"}">${paymentStatus}</span></p>
+      ${entry.paid ? "" : `<button class="btn pay-session-btn" type="button" data-parking-id="${entry.parkingId}">Pay ${currency(entry.total)}</button>`}
+    `;
     historyList.appendChild(item);
   });
 }
@@ -570,9 +662,13 @@ function initializeEvents() {
   document.getElementById("extendTimeBtn").addEventListener("click", () => {
     addNotification("Time extended", "Parking session extension requested.");
   });
-  document.getElementById("payNowBtn").addEventListener("click", completePayment);
-  document.getElementById("downloadReceiptBtn").addEventListener("click", () => {
-    addNotification("Receipt", "Receipt downloaded successfully.");
+  document.getElementById("payNowBtn").addEventListener("click", openUpiPayment);
+  document.getElementById("confirmPaymentBtn").addEventListener("click", completePayment);
+  document.getElementById("historyList").addEventListener("click", (event) => {
+    const button = event.target.closest(".pay-session-btn");
+    if (!button) return;
+    const payment = state.history.find((entry) => entry.parkingId === Number(button.dataset.parkingId));
+    if (payment) openPaymentForSession(payment);
   });
 
   function startLocationTracking() {
@@ -720,6 +816,7 @@ async function startApp() {
     state.eventsInitialized = true;
   }
   await fetchSpotsFromCloudflare();
+  startLiveUpdates();
 }
 
 init();

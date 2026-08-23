@@ -55,14 +55,25 @@ export default {
 
       // POST /exit - close the active session at a parking space
       if (request.method === "POST" && url.pathname === "/exit") {
-        const { space_id } = await request.json();
+        const { space_id, rfid } = await request.json();
         if (!space_id) return json({ error: "space_id is required" }, 400);
 
-        await env.YES_PARKING.prepare(
-          "UPDATE parking_session SET end_time=datetime('now') WHERE parking_space_id=? AND end_time IS NULL"
-        ).bind(space_id).run();
+        const activeSession = await env.YES_PARKING.prepare(
+          `SELECT * FROM parking_session
+           WHERE parking_space_id=? AND end_time IS NULL${rfid ? " AND rfid_id=?" : ""}`
+        ).bind(...(rfid ? [space_id, rfid] : [space_id])).first();
 
-        return json({ success: true });
+        if (!activeSession) return json({ error: "No matching active session found." }, 404);
+
+        await env.YES_PARKING.prepare(
+          "UPDATE parking_session SET end_time=datetime('now') WHERE parking_id=?"
+        ).bind(activeSession.parking_id).run();
+
+        const session = await env.YES_PARKING.prepare(
+          "SELECT * FROM parking_session WHERE parking_id=?"
+        ).bind(activeSession.parking_id).first();
+
+        return json({ success: true, session });
       }
 
       // GET /sessions
@@ -89,6 +100,29 @@ export default {
           : await statement.all();
 
         return json(results);
+      }
+
+      // POST /payments/confirm - mark one user's completed parking session as paid.
+      // A payment gateway webhook should replace this self-confirmation before production.
+      if (request.method === "POST" && url.pathname === "/payments/confirm") {
+        const { parking_id, rfid } = await request.json();
+        if (!parking_id || !rfid) {
+          return json({ error: "parking_id and rfid are required" }, 400);
+        }
+
+        const session = await env.YES_PARKING.prepare(
+          "SELECT * FROM parking_session WHERE parking_id=? AND rfid_id=?"
+        ).bind(parking_id, rfid).first();
+
+        if (!session) return json({ error: "Parking session not found." }, 404);
+        if (!session.end_time) return json({ error: "Parking session has not ended." }, 409);
+        if (Number(session.paid) === 1) return json({ success: true, already_paid: true });
+
+        await env.YES_PARKING.prepare(
+          "UPDATE parking_session SET paid=1 WHERE parking_id=? AND rfid_id=? AND end_time IS NOT NULL"
+        ).bind(parking_id, rfid).run();
+
+        return json({ success: true, parking_id });
       }
 
       // GET /users - user profiles (do not return passwords)

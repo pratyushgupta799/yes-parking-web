@@ -524,6 +524,68 @@ input[type="text"]:hover {
   margin: 0;
 }
 
+.pay-session-btn {
+  width: 100%;
+  margin-top: 6px;
+}
+
+.payment-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.payment-status.is-paid {
+  color: #047857;
+  background: var(--success-soft);
+}
+
+.payment-status.is-due {
+  color: #b45309;
+  background: var(--warning-soft);
+}
+
+.upi-payment {
+  gap: 8px;
+}
+
+.upi-payment strong {
+  color: var(--primary-dark);
+  font-size: 1rem;
+}
+
+.upi-payment span,
+.upi-payment p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.upi-payment code {
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+  font-family: inherit;
+  font-weight: 700;
+}
+
+.upi-payment .payment-disclaimer {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  transform: none;
+  box-shadow: none;
+}
+
 .payment-methods input[type="radio"]:checked + label,
 .payment-methods label:has(input[type="radio"]:checked) {
   background: var(--primary-soft);

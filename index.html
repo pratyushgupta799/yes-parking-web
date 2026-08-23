@@ -139,20 +139,21 @@
           <h2>Payment</h2>
           <article class="card">
             <p><strong>Total time:</strong> <span id="payTime">-</span></p>
-            <p><strong>Base cost:</strong> <span id="payBase">-</span></p>
-            <p><strong>Taxes/fees:</strong> <span id="payFees">-</span></p>
+            <p><strong>Parking rate:</strong> <span id="payRate">-</span></p>
+            <p><strong>Parking charge:</strong> <span id="payBase">-</span></p>
             <p><strong>Total:</strong> <span id="payTotal">-</span></p>
           </article>
 
-          <div class="payment-methods">
-            <label><input type="radio" name="payMethod" value="UPI" checked /> UPI</label>
-            <label><input type="radio" name="payMethod" value="Card" /> Card</label>
-            <label><input type="radio" name="payMethod" value="Wallet" /> Wallet</label>
+          <div class="payment-methods upi-payment">
+            <strong>Pay securely with any UPI app</strong>
+            <span>Payment is addressed to <code id="upiId">-</code></span>
+            <p>Tap “Open UPI app”, complete the payment there, then return here to confirm.</p>
+            <p class="payment-disclaimer">Payment status is self-confirmed in this version. Add a payment gateway or server-side verification before production use.</p>
           </div>
 
           <div class="actions-grid">
-            <button class="btn" id="payNowBtn">Pay Now</button>
-            <button class="btn btn-secondary" id="downloadReceiptBtn">Download Receipt</button>
+            <button class="btn" id="payNowBtn" type="button">Open UPI app</button>
+            <button class="btn btn-secondary" id="confirmPaymentBtn" type="button" disabled>I've paid</button>
           </div>
         </section>
 
