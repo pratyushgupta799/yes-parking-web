@@ -2,6 +2,35 @@ const API_URL = "https://yes-parking.pratyushgupta04.workers.dev";
 const UPI_ID = "7676541384-2@ybl";
 const UPI_PAYEE_NAME = "Yes Parking";
 const UPI_REQUEST_AMOUNT = 1;
+
+// Android uses intent package names; iOS needs each app's URL scheme (generic upi:// has no chooser).
+const UPI_APPS = {
+  gpay: {
+    label: "Google Pay",
+    androidPackage: "com.google.android.apps.nbu.paisa.user",
+    iosScheme: "gpay://upi/pay?",
+  },
+  phonepe: {
+    label: "PhonePe",
+    androidPackage: "com.phonepe.app",
+    iosScheme: "phonepe://pay?",
+  },
+  paytm: {
+    label: "Paytm",
+    androidPackage: "net.one97.paytm",
+    iosScheme: "paytmmp://pay?",
+  },
+  bhim: {
+    label: "BHIM",
+    androidPackage: "in.org.npci.upiapp",
+    iosScheme: "bhim://pay?",
+  },
+  whatsapp: {
+    label: "WhatsApp",
+    androidPackage: "com.whatsapp",
+    iosScheme: null,
+  },
+};
 const spots = [];
 
 const state = {
@@ -530,9 +559,15 @@ async function endParkingSession() {
   }
 }
 
+function createPaymentReference(parkingId) {
+  // UPI transaction refs are limited to 35 alphanumeric characters.
+  const suffix = Date.now().toString(36).toUpperCase();
+  return `YP${parkingId}${suffix}`.slice(0, 35);
+}
+
 function openPaymentForSession(session) {
   const payment = getSessionPayment(session);
-  const paymentReference = `YESP${payment.parkingId}${Date.now()}`;
+  const paymentReference = createPaymentReference(payment.parkingId);
   document.getElementById("payTime").textContent = `${payment.elapsedMinutes} min`;
   document.getElementById("payRate").textContent = `${currency(payment.pricePerHour)} / hour`;
   document.getElementById("payBase").textContent = currency(payment.total);
@@ -549,8 +584,8 @@ function openPaymentForSession(session) {
   showScreen("payment");
 }
 
-function getUpiPaymentUrl(payment) {
-  const params = new URLSearchParams({
+function buildUpiQueryString(payment) {
+  const fields = {
     pa: UPI_ID,
     pn: UPI_PAYEE_NAME,
     // Test-mode UPI request. The session's real parking charge remains displayed
@@ -559,23 +594,65 @@ function getUpiPaymentUrl(payment) {
     cu: "INR",
     tn: `Parking ${payment.spotId}`,
     tr: payment.paymentReference,
-  });
-  return `upi://pay?${params.toString()}`;
+  };
+
+  // URLSearchParams uses "+" for spaces; most UPI apps expect "%20" instead.
+  return Object.entries(fields)
+    .map(([key, value]) => `${key}=${encodeURIComponent(String(value))}`)
+    .join("&");
 }
 
-function openUpiPayment(appPackage = null) {
-  if (!state.lastPayment) return;
-  document.getElementById("confirmPaymentBtn").disabled = false;
-  const upiUrl = getUpiPaymentUrl(state.lastPayment);
-  const isAndroid = /Android/i.test(navigator.userAgent);
+function getPlatform() {
+  const ua = navigator.userAgent;
+  if (/Android/i.test(ua)) return "android";
+  if (/iPhone|iPad|iPod/i.test(ua)) return "ios";
+  return "other";
+}
 
-  if (appPackage && isAndroid) {
-    const intentUrl = `intent://pay?${upiUrl.split("?")[1]}#Intent;scheme=upi;package=${appPackage};end`;
-    window.location.href = intentUrl;
+function openUpiPayment(appKey = "generic") {
+  if (!state.lastPayment) return;
+
+  const platform = getPlatform();
+  const app = UPI_APPS[appKey];
+  const query = buildUpiQueryString(state.lastPayment);
+  const confirmButton = document.getElementById("confirmPaymentBtn");
+
+  if (platform === "ios" && appKey === "whatsapp") {
+    addNotification(
+      "Use another app on iPhone",
+      "WhatsApp Pay on iPhone does not accept browser payment links. Pick Google Pay, PhonePe, or Paytm."
+    );
     return;
   }
 
-  window.location.href = upiUrl;
+  if (platform === "ios" && app?.iosScheme) {
+    confirmButton.disabled = false;
+    window.location.href = `${app.iosScheme}${query}`;
+    return;
+  }
+
+  if (platform === "android") {
+    confirmButton.disabled = false;
+    const packageName = app?.androidPackage;
+    const intentSuffix = packageName ? `package=${packageName};` : "";
+    window.location.href = `intent://pay?${query}#Intent;scheme=upi;${intentSuffix}end`;
+    return;
+  }
+
+  if (platform === "ios") {
+    confirmButton.disabled = false;
+    addNotification(
+      "Opening default UPI app",
+      "iPhone does not show an app picker. Select your app above, or your default UPI app will open."
+    );
+    window.location.href = `upi://pay?${query}`;
+    return;
+  }
+
+  addNotification(
+    "Open on your phone",
+    "UPI payments must be opened on an Android or iPhone device with a UPI app installed."
+  );
 }
 
 async function completePayment() {
@@ -681,7 +758,8 @@ function initializeEvents() {
   });
   document.getElementById("payNowBtn").addEventListener("click", () => {
     const selectedApp = document.getElementById("upiAppSelect").value;
-    openUpiPayment(selectedApp === "generic" ? null : selectedApp);
+    if (!selectedApp) return;
+    openUpiPayment(selectedApp);
   });
   document.getElementById("confirmPaymentBtn").addEventListener("click", completePayment);
   document.getElementById("historyList").addEventListener("click", (event) => {
