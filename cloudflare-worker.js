@@ -111,18 +111,28 @@ export default {
         }
 
         const session = await env.YES_PARKING.prepare(
-          "SELECT * FROM parking_session WHERE parking_id=? AND rfid_id=?"
+          `SELECT parking_session.*, parking_space.price_per_hour,
+             MAX(1, ROUND((julianday(parking_session.end_time) - julianday(parking_session.start_time)) * 1440)) AS elapsed_minutes
+           FROM parking_session
+           JOIN parking_space ON parking_space.parking_space_id = parking_session.parking_space_id
+           WHERE parking_session.parking_id=? AND parking_session.rfid_id=?`
         ).bind(parking_id, rfid).first();
 
         if (!session) return json({ error: "Parking session not found." }, 404);
         if (!session.end_time) return json({ error: "Parking session has not ended." }, 409);
         if (Number(session.paid) === 1) return json({ success: true, already_paid: true });
 
-        await env.YES_PARKING.prepare(
-          "UPDATE parking_session SET paid=1 WHERE parking_id=? AND rfid_id=? AND end_time IS NOT NULL"
-        ).bind(parking_id, rfid).run();
+        const amount = (Number(session.elapsed_minutes) / 60) * Number(session.price_per_hour);
+        await env.YES_PARKING.batch([
+          env.YES_PARKING.prepare(
+            "UPDATE parking_session SET paid=1 WHERE parking_id=? AND rfid_id=? AND end_time IS NOT NULL"
+          ).bind(parking_id, rfid),
+          env.YES_PARKING.prepare(
+            "INSERT INTO payment (parking_session_id, amount) VALUES (?, ?)"
+          ).bind(parking_id, amount),
+        ]);
 
-        return json({ success: true, parking_id });
+        return json({ success: true, parking_id, amount });
       }
 
       // GET /users - user profiles (do not return passwords)

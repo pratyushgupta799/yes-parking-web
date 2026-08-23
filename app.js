@@ -1,6 +1,7 @@
 const API_URL = "https://yes-parking.pratyushgupta04.workers.dev";
 const UPI_ID = "9693714522@pthdfc";
 const UPI_PAYEE_NAME = "Yes Parking";
+const UPI_REQUEST_AMOUNT = 1;
 const spots = [];
 
 const state = {
@@ -552,7 +553,9 @@ function getUpiPaymentUrl(payment) {
   const params = new URLSearchParams({
     pa: UPI_ID,
     pn: UPI_PAYEE_NAME,
-    am: payment.total.toFixed(2),
+    // Test-mode UPI request. The session's real parking charge remains displayed
+    // to the user and is calculated independently by the Worker for the payment ledger.
+    am: UPI_REQUEST_AMOUNT.toFixed(2),
     cu: "INR",
     tn: `Parking ${payment.spotId}`,
     tr: payment.paymentReference,
