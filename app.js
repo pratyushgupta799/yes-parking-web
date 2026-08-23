@@ -1,7 +1,6 @@
 const API_URL = "https://yes-parking.pratyushgupta04.workers.dev";
 const UPI_ID = "7676541384-2@ybl";
 const UPI_PAYEE_NAME = "Yes Parking";
-const UPI_REQUEST_AMOUNT = 1;
 
 // Android uses intent package names; iOS needs each app's URL scheme (generic upi:// has no chooser).
 const UPI_APPS = {
@@ -585,12 +584,11 @@ function openPaymentForSession(session) {
 }
 
 function buildUpiQueryString(payment) {
+  const amount = Number(payment.total ?? 0).toFixed(2);
   const fields = {
     pa: UPI_ID,
     pn: UPI_PAYEE_NAME,
-    // Test-mode UPI request. The session's real parking charge remains displayed
-    // to the user and is calculated independently by the Worker for the payment ledger.
-    am: UPI_REQUEST_AMOUNT.toFixed(2),
+    am: amount,
     cu: "INR",
     tn: `Parking ${payment.spotId}`,
     tr: payment.paymentReference,
@@ -609,12 +607,14 @@ function getPlatform() {
   return "other";
 }
 
-function openUpiPayment(appKey = "generic") {
+async function openUpiPayment(appKey = "generic") {
   if (!state.lastPayment) return;
 
+  const paymentToProcess = { ...state.lastPayment };
   const platform = getPlatform();
   const app = UPI_APPS[appKey];
-  const query = buildUpiQueryString(state.lastPayment);
+  const query = buildUpiQueryString(paymentToProcess);
+  const payNowButton = document.getElementById("payNowBtn");
   const confirmButton = document.getElementById("confirmPaymentBtn");
 
   if (platform === "ios" && appKey === "whatsapp") {
@@ -625,34 +625,76 @@ function openUpiPayment(appKey = "generic") {
     return;
   }
 
+  // Construct target URI for UPI app
+  let upiUrl = `upi://pay?${query}`;
   if (platform === "ios" && app?.iosScheme) {
-    confirmButton.disabled = false;
-    window.location.href = `${app.iosScheme}${query}`;
-    return;
-  }
-
-  if (platform === "android") {
-    confirmButton.disabled = false;
+    upiUrl = `${app.iosScheme}${query}`;
+  } else if (platform === "android") {
     const packageName = app?.androidPackage;
     const intentSuffix = packageName ? `package=${packageName};` : "";
-    window.location.href = `intent://pay?${query}#Intent;scheme=upi;${intentSuffix}end`;
-    return;
+    upiUrl = `intent://pay?${query}#Intent;scheme=upi;${intentSuffix}end`;
   }
 
-  if (platform === "ios") {
-    confirmButton.disabled = false;
+  if (payNowButton) {
+    payNowButton.disabled = true;
+    payNowButton.textContent = "Opening UPI app…";
+  }
+
+  // Process payment record to Cloudflare Worker upon UPI app opening
+  try {
+    const response = await fetch(`${API_URL}/payments/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        parking_id: paymentToProcess.parkingId,
+        rfid: state.user?.rfid_id,
+        amount: paymentToProcess.total,
+      }),
+    });
+
+    const payload = await response.json();
+    if (!response.ok) {
+      console.warn("Payment recording note:", payload.error);
+    } else {
+      addNotification(
+        "Payment processed",
+        `Payment of ${currency(paymentToProcess.total)} recorded for ${paymentToProcess.spotId}.`
+      );
+    }
+
+    state.parkingStart = null;
+    state.timerId = null;
+    state.activeSession = null;
+    setSessionSummary(null);
+    await loadParkingHistory();
+  } catch (error) {
+    console.error("Cloudflare payment error:", error);
+    addNotification("Payment note", `Payment initiated for ${paymentToProcess.spotId}.`);
+  } finally {
+    if (payNowButton) {
+      payNowButton.disabled = false;
+      payNowButton.textContent = "Continue to selected app";
+    }
+    if (confirmButton) {
+      confirmButton.disabled = false;
+    }
+  }
+
+  if (platform === "ios" && !app?.iosScheme) {
     addNotification(
       "Opening default UPI app",
       "iPhone does not show an app picker. Select your app above, or your default UPI app will open."
     );
-    window.location.href = `upi://pay?${query}`;
-    return;
   }
 
-  addNotification(
-    "Open on your phone",
-    "UPI payments must be opened on an Android or iPhone device with a UPI app installed."
-  );
+  if (platform === "other") {
+    addNotification(
+      "UPI link triggered",
+      `Opening UPI app for ${currency(paymentToProcess.total)}.`
+    );
+  }
+
+  window.location.href = upiUrl;
 }
 
 async function completePayment() {
@@ -665,7 +707,11 @@ async function completePayment() {
     const response = await fetch(`${API_URL}/payments/confirm`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ parking_id: state.lastPayment.parkingId, rfid: state.user?.rfid_id }),
+      body: JSON.stringify({
+        parking_id: state.lastPayment.parkingId,
+        rfid: state.user?.rfid_id,
+        amount: state.lastPayment.total,
+      }),
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Could not record the payment.");

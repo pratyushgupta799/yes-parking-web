@@ -102,31 +102,37 @@ export default {
         return json(results);
       }
 
-      // POST /payments/confirm - mark one user's completed parking session as paid.
-      // A payment gateway webhook should replace this self-confirmation before production.
-      if (request.method === "POST" && url.pathname === "/payments/confirm") {
-        const { parking_id, rfid } = await request.json();
-        if (!parking_id || !rfid) {
-          return json({ error: "parking_id and rfid are required" }, 400);
+      // POST /payments/confirm or POST /payments - mark session as paid and insert payment record
+      if (request.method === "POST" && (url.pathname === "/payments/confirm" || url.pathname === "/payments")) {
+        const body = await request.json();
+        const parking_id = body.parking_id || body.parking_session_id;
+        const rfid = body.rfid;
+        const clientAmount = body.amount;
+
+        if (!parking_id) {
+          return json({ error: "parking_id is required" }, 400);
         }
 
         const session = await env.YES_PARKING.prepare(
           `SELECT parking_session.*, parking_space.price_per_hour,
-             MAX(1, ROUND((julianday(parking_session.end_time) - julianday(parking_session.start_time)) * 1440)) AS elapsed_minutes
+             MAX(1, ROUND((julianday(COALESCE(parking_session.end_time, datetime('now'))) - julianday(parking_session.start_time)) * 1440)) AS elapsed_minutes
            FROM parking_session
            JOIN parking_space ON parking_space.parking_space_id = parking_session.parking_space_id
-           WHERE parking_session.parking_id=? AND parking_session.rfid_id=?`
-        ).bind(parking_id, rfid).first();
+           WHERE parking_session.parking_id=?${rfid ? " AND parking_session.rfid_id=?" : ""}`
+        ).bind(...(rfid ? [parking_id, rfid] : [parking_id])).first();
 
         if (!session) return json({ error: "Parking session not found." }, 404);
-        if (!session.end_time) return json({ error: "Parking session has not ended." }, 409);
-        if (Number(session.paid) === 1) return json({ success: true, already_paid: true });
+        if (Number(session.paid) === 1) return json({ success: true, already_paid: true, parking_id });
 
-        const amount = (Number(session.elapsed_minutes) / 60) * Number(session.price_per_hour);
+        const calculatedAmount = (Number(session.elapsed_minutes) / 60) * Number(session.price_per_hour);
+        const amount = (clientAmount !== undefined && clientAmount !== null && !isNaN(Number(clientAmount)))
+          ? Number(Number(clientAmount).toFixed(2))
+          : Number(calculatedAmount.toFixed(2));
+
         await env.YES_PARKING.batch([
           env.YES_PARKING.prepare(
-            "UPDATE parking_session SET paid=1 WHERE parking_id=? AND rfid_id=? AND end_time IS NOT NULL"
-          ).bind(parking_id, rfid),
+            "UPDATE parking_session SET paid=1, end_time=COALESCE(end_time, datetime('now')) WHERE parking_id=?"
+          ).bind(parking_id),
           env.YES_PARKING.prepare(
             "INSERT INTO payment (parking_session_id, amount) VALUES (?, ?)"
           ).bind(parking_id, amount),
@@ -240,6 +246,14 @@ export default {
           success: true,
           user: { name, email, rfid_id, phone_number, vehicle_number },
         }, 201);
+      }
+
+      // GET /payments — all payment records
+      if (request.method === "GET" && url.pathname === "/payments") {
+        const { results } = await env.YES_PARKING.prepare(
+          "SELECT id, parking_session_id, amount FROM payment ORDER BY id DESC"
+        ).all();
+        return json(results);
       }
 
       return json({ error: "Not found" }, 404);
