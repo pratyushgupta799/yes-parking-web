@@ -1,5 +1,5 @@
 const API_URL = "https://yes-parking.pratyushgupta04.workers.dev";
-const UPI_ID = "9693714522@pthdfc";
+const UPI_ID = "7676541384-2@ybl";
 const UPI_PAYEE_NAME = "Yes Parking";
 const UPI_REQUEST_AMOUNT = 1;
 const spots = [];
